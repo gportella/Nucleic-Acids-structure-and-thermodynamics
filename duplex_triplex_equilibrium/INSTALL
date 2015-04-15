@@ -1,0 +1,15 @@
+
+
+Duplex/Triplex Equilibrium 
+
+A Makefile for the duplex and triplex versions of the programs
+is supplied.
+
+The current version requires a compiled non-MPI version of Gromacs 4.6. 
+The program uses Gromacs functionality for parsing the arguments, dealing 
+with memory and I/O. In the future we will eliminate this dependencies.
+Before compiling, make sure to source this version of Gromacs.
+
+The program also requires the GSL and GSL-C-Blas libraries to be installed
+and available for linking. 
+

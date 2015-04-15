@@ -1,0 +1,20 @@
+
+Back-calculate RDCs from MD trajectories (Gromacs XTC files)
+using the theta method. 
+
+We perform a rotational search for the optimal correlation between
+calculated and experimental RDCs, and then back-calculate the 
+RDCs. Ensemble and time averaged included. 
+
+Requires Gromacs 4.6.3 
+
+I believe that Makefile should work with a non-mpi version of gmx 4.6.3, I guess 
+it does not work for mpi-compiled gmx. 
+
+Once compiled ./g_qrdc -h should give you the options. These should be documented 
+fine, but just in case you can also check the code. 
+
+
+
+
+
