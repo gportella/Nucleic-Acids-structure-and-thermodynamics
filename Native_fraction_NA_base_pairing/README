@@ -1,0 +1,6 @@
+
+Compute the number of native (predefined) base pairs in a
+MD trajectory. 
+
+Requires compiled non-MPI Gromacs 4.6.3
+
