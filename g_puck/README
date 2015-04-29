@@ -1,0 +1,9 @@
+
+GPC 29/04/2015 g_puckering v 1.0
+
+Should be linked against Gromacs-4.6.x (compiled without MPI support).
+Just do source GMXRC, or edit the Makefile.
+
+Computes puckering angle and amplitude for ribose DNA/RNA rings
+Computes average of the puckering angle
+Reads the residues from a list in a file
