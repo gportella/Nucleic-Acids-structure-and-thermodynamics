@@ -27,7 +27,7 @@
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_roots.h>
 #include <gsl/gsl_blas.h>
-#include <sg.h> 
+#include "sg.h"
 
 #define R (0.0019858)
 
@@ -230,9 +230,9 @@ f_p do_fit_triplex(double *xx[],int n,f_p p, bool bVerbose)
 		if (status)
 			break;
 		status = gsl_multifit_test_delta (s->dx, s->x,
-				1e-4, 1e-4);
+				1e-8, 1e-8);
 	}
-	while (status == GSL_CONTINUE && iter < 500);
+	while (status == GSL_CONTINUE && iter < 1000);
 	gsl_multifit_covar (s->J, 0.0, covar);
 
 	#define FIT(i) gsl_vector_get(s->x, i)
@@ -244,17 +244,20 @@ f_p do_fit_triplex(double *xx[],int n,f_p p, bool bVerbose)
 	fit.dh3 = gsl_vector_get(s->x, 1);
 	fit.c   = gsl_vector_get(s->x, 2);
 
-	if(bVerbose)
-	{ 
 		double chi = gsl_blas_dnrm2(s->f);
 		double dof = n - pp;
 		double c = GSL_MAX_DBL(1, chi / sqrt(dof)); 
+	if(bVerbose)
+	{ 
 
 		printf("chisq/dof = %g\n",  pow(chi, 2.0) / dof);
 		printf ("Tm3    = %.5f +/- %.5f\n", FIT(0), c*ERR(0));
 		printf ("DH3    = %.5f +/- %.5f\n", FIT(1), c*ERR(1));
 		printf ("c      = %.5f +/- %.5f\n", FIT(2), c*ERR(2));
 		printf ("status = %s\n", gsl_strerror (status));
+	}else{
+
+		printf ("Tm3    = %.5f  %.5f\n", FIT(0)-273.15, c*ERR(0));
 	}
 
 	gsl_multifit_fdfsolver_free (s);
@@ -489,11 +492,11 @@ int main(int argc, char *argv[])
 	if(fitfile) {
 		f_fit = ffopen(fitfile,"w");
 		for(i=0; i<nts; i++){  
-			fprintf(f_fit,"%f %f \n", ctrip[0][i], ctrip[1][i]);
+			fprintf(f_fit,"%f %f \n", ctrip[0][i]-273.15, ctrip[1][i]);
 		}
 			fprintf(f_fit,"&\n");
 		for(i=0; i<nts; i++){  
-			fprintf(f_fit,"%f %f \n", ftrip[0][i], ftrip[1][i]);
+			fprintf(f_fit,"%f %f \n", ftrip[0][i]-273.15, ftrip[1][i]);
 		}
 		fclose(f_fit);
 	}

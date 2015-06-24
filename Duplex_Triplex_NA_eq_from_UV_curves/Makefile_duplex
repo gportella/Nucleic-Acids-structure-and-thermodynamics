@@ -27,12 +27,12 @@ endif
 #get CPPFLAGS and LDFLAGS from pkg-config
 CPPFLAGS=`pkg-config --cflags libgmx libmd  ` -O3 -g  -I/opt/local/include
 #LDFLAGS=`pkg-config --libs libgmx  libmd ` -fopenmp -lprofiler -L/Users/guillem/work/soft/gperftools_install/lib 
-LDFLAGS=`pkg-config --libs libgmx  libmd ` -fopenmp  -L/opt/local/lib -lgsl -lgslcblas -lm
+LDFLAGS=`pkg-config --libs libgmx  libmd `   -L/opt/local/lib -lgsl -lgslcblas -lm -g
 
 #generate a list of object (.o) files
 OBJS=$(patsubst %.c,%.o,$(NAME).c $(EXTRA_SRC))
 
-CC=clang2
+CC=clang
 
 #main program depend on all objects, rest is done by implicit rules
 $(NAME): $(OBJS) 

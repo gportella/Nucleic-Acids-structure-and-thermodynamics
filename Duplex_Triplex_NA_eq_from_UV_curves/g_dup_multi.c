@@ -27,8 +27,8 @@
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_roots.h>
 #include <gsl/gsl_blas.h>
-#include <sg.h>
-#include <read_mult_d_inp.h>
+#include "sg.h"
+#include "read_mult_d_inp.h"
 
 #define R (0.0019858)
 struct fit_params
@@ -39,6 +39,7 @@ struct fit_params
 struct fit_data
 {
     size_t n;
+    int  w;
 	f_info *f;
 };
 
@@ -46,7 +47,13 @@ typedef struct{
 	double dh2;
 	double ds2;
 	double dg2;
+	double r2;
 } f_all_sol; 
+
+typedef struct{
+	int max_MC_iter;
+	real wt;
+} fit_params;
 
 typedef struct
 {
@@ -59,6 +66,7 @@ typedef struct
 } f_p;
 
 void do_solve_eq_d(double *x, int n, f_p p, double *fd);
+
 
 void create_fit_curve(double *x[],double *xf[],int n,f_p s)
 {
@@ -92,143 +100,269 @@ int eq_fit (const gsl_vector * x, void *d,
 {
 	int i;
 	size_t n = ((struct fit_data *)d)->n;
-	double dh2   = gsl_vector_get (x,2*n);
-	double ds2   = gsl_vector_get (x,2*n+1);
+	int  w = ((struct fit_data *)d)->w;
+	double tm2 = gsl_vector_get (x,0);
+	double c = gsl_vector_get (x,1);
+	double dh2   = gsl_vector_get (x,2);
+	double ds2   = gsl_vector_get (x,3);
 	double *fd; // fraction duplex
-	int ntot=0;
-	for(i=0;i<n; i++){
-		// fitting parameters
-		double tm2 = gsl_vector_get (x,i);
-		double c = gsl_vector_get (x,i+n);
-		// constants and data to fit
-		double nts = ((struct fit_data *)d)->f[i].nts - 1 ;
-		double *xx = ((struct fit_data *)d)->f[i].xp[0];
-		double *yy = ((struct fit_data *)d)->f[i].xp[1];
-		f_p fpt;
-		fpt.tm2=tm2;
-		fpt.dh2=dh2;
-		snew(fd,nts);
+	// fitting parameters
+	// constants and data to fit
+	double nts = ((struct fit_data *)d)->f[w].nts - 1 ;
+	double *xx = ((struct fit_data *)d)->f[w].xp[0];
+	double *yy = ((struct fit_data *)d)->f[w].xp[1];
+	f_p fpt;
+	fpt.tm2=tm2;
+	fpt.dh2=dh2;
+	snew(fd,nts);
 
-		do_solve_eq_d(xx,nts,fpt,fd);
+	do_solve_eq_d(xx,nts,fpt,fd);
 
-		for (j = 0; j < nts; j++)
-		{
-			//  acc. to R&C PNAS 1991 it should have a diff 
-			//  form, but this one from a triplex paper fits better
-			//  ( 1 - a2 + c * ( 1- a3) )/(1+c)
-			if ( c < 0 ) {c=100000;}
-			double Yi = (  c*(((1-fd[j])*fd[j])/(2-fd[j]))*xx[j]*xx[j] );
-			gsl_vector_set (fit, j+i, (Yi - yy[j]) );
-			ntot++;
-		}
-		sfree(fd);
+	for (j = 0; j < nts; j++)
+	{
+		//  acc. to R&C PNAS 1991 it should have a diff 
+		//  form, but this one from a triplex paper fits better
+		//  ( 1 - a2 + c * ( 1- a3) )/(1+c)
+		if ( c < 0 ) {c=100000;}
+		double Yi = (  c*(((1-fd[j])*fd[j])/(2-fd[j]))*xx[j]*xx[j] );
+		gsl_vector_set (fit, j+i, (Yi - yy[j]) );
 	}
-	for (i = 0; i < n; i++){
-		double tm2 = gsl_vector_get (x,i);
-		double conc = ((struct fit_data *)d)->f[i].conc;
-		gsl_vector_set (fit,ntot+1, 
-				(1.0/tm2  - ((R/dh2)*log(conc) + ((ds2-R*log(4))/dh2)) )  );
-	}
+
+	sfree(fd);
 
     return GSL_SUCCESS;
 
 }
 
-f_all_sol do_fit_duplex(f_info *f,int n, bool bVerbose)
+// function that the gls solver calls to make the fit
+// for 1/tm2 vs ln(Ct)l 
+int eq_fit_straight(const gsl_vector * x, void *d,
+        gsl_vector *fit)
 {
-	int i;
+    int i;
+    double dh2 = gsl_vector_get (x,0);
+    double ds2 = gsl_vector_get (x,1);
+    size_t n = ((struct fit_data *)d)->n;
+    for (i = 0; i < n; i++){
+        double conc = ((struct fit_data *)d)->f[i].conc;
+        double tm2 = ((struct fit_data *)d)->f[i].tm2;
+        gsl_vector_set (fit,i,
+                (1.0/tm2  - ((R/dh2)*log(conc) + ((ds2-R*log(4))/dh2)) )  );
+    }
+
+    return GSL_SUCCESS;
+}
+
+
+void eval_fit_straight(f_all_sol mf, f_info *f_inp, int nf, real *f)
+{
+	int i; 
+	for(j=0; j<nf; j++){
+		f[j] = (R/mf.dh2)*log(f_inp[j].conc) + ((mf.ds2-R*log(4))/mf.dh2);
+	}
+
+}
+
+f_all_sol do_fit_duplex(f_info *f, int n, real *t_min, real *t_max, bool bVerbose, bool bUpdate)
+{
+	int i,j,k;
 	int iter=0;
 	int tot_points=0;
 	int status;
+	int tot_abs=0;
+	int tot_inv_t=0;
+	real inv_t=0;
+	real tss_inv=0;
+	real mean_inv_t=0;
+	real abs_t=0;
+	real mean_abs_t=0;
+	real tss_abs=0;
+	real tss_tot=0;
 	f_all_sol fit;
-	size_t pp = 0;
-	// the number of parameters to fit is 2*n+DH+DS 
-	// 2*n is for the tm3+c, 
-	pp = 2*n+2;
-	// Total number of points to fit
-	for(i=0;i<n;i++){ tot_points+= f[i].nts; }
-	const gsl_multifit_fdfsolver_type *T;
-	gsl_multifit_fdfsolver *s;
+	f_info *local_f;
 
-	gsl_matrix *covar = gsl_matrix_alloc (pp, pp);
-	struct fit_data d = { n, f};
-	gsl_multifit_function_fdf ff;
+	snew(local_f,n);
 
-	gsl_vector *x; 
-	x = gsl_vector_alloc(pp);
-	for(i=0;i<n;i++){
-		gsl_vector_set(x,i,f[i].tm2);
-	}
-	for(i=0;i<n;i++){
-		gsl_vector_set(x,i+n,f[i].c);
-	}
-	// DH and DS
-	gsl_vector_set(x,2*n,-70);
-	gsl_vector_set(x,2*n+1,-0.1);
-
-	T = gsl_multifit_fdfsolver_lmsder;
-	s = gsl_multifit_fdfsolver_alloc (T, tot_points+n, pp);
-
-	// copy data to function
-	ff.f = &eq_fit;
-	ff.df = NULL;
-	ff.fdf = NULL;
-	ff.p = pp;
-	// total number of points is total of points
-	// in the curve plus the number of points for the inv. fit
-	ff.n = tot_points+n;
-	ff.params = &d;
-
-	gsl_multifit_fdfsolver_set (s, &ff, x);
-
-	do
-	{
-		iter++;
-		status = gsl_multifit_fdfsolver_iterate (s);
-		if(bVerbose){
-			printf ("iter: %3u x = % 15.8f % 15.8f "
-					"|f(x)| = %g\n",iter,
-					gsl_vector_get (s->x, 2*n),
-					gsl_vector_get (s->x, 2*n+1),
-					gsl_blas_dnrm2 (s->f));
+	// count points within boundaries, allocate 
+	// and copy to new array. Only copy the xp (derivative)
+	// as is the one that matters for the fitting
+	for(i=0; i<n; i++){
+		for(j=0; j<f[i].nts; j++){
+			if( f[i].xp[0][j] >= t_min[i] && f[i].xp[0][j] <= t_max[i] ) { local_f[i].nts++ ; }
 		}
-
-		if (status)
-			break;
-		status = gsl_multifit_test_delta (s->dx, s->x,
-				1e-4, 1e-4);
+		snew(local_f[i].xp[0],local_f[i].nts); 
+		snew(local_f[i].xp[1],local_f[i].nts); 
 	}
-	while (status == GSL_CONTINUE && iter < 500);
-	gsl_multifit_covar (s->J, 0.0, covar);
-
-#define FIT(i) gsl_vector_get(s->x, 2*n+i)
-#define ERR(i) sqrt(gsl_matrix_get(covar,2*n+i,2*n+i))
-
-	fit.dh2 = gsl_vector_get(s->x, 2*n);
-	fit.ds2 = gsl_vector_get(s->x, 2*n+1);
-	fit.dg2   = fit.dh2 - 298*fit.ds2;
-
-	for(i=0;i<n;i++){
-		f[i].tm2 = gsl_vector_get(s->x, i);
-	}
-
-	if(bVerbose)
-	{
-		double chi = gsl_blas_dnrm2(s->f);
-		double dof = n - pp;
-		double c = GSL_MAX_DBL(1, chi / sqrt(dof));
-
-		printf("chisq/dof = %g\n",  pow(chi, 2.0) / dof);
-		printf ("DH3    = %.5f +/- %.5f\n", FIT(0), c*ERR(0));
-		printf ("DS3    = %.5f +/- %.5f\n", FIT(1), c*ERR(1));
-		printf ("DG3    = %.5f +/- %.5f\n", fit.dg2,c*ERR(1)+c*298*ERR(0));
-		printf ("status = %s\n", gsl_strerror (status));
+	// now copy the data
+	// not only the derivatives of the absorbance, also the conc
+	k=0;
+	for(i=0; i<n; i++){
+		local_f[i].conc = f[i].conc ;
+		for(j=0; j<f[i].nts; j++){
+			if( f[i].xp[0][j] >= t_min[i] && f[i].xp[0][j] <= t_max[i] ) { 
+				local_f[i].xp[0][k] = f[i].xp[0][j] ;
+				local_f[i].xp[1][k] = f[i].xp[1][j] ;
+				// we use this loop to compute the TSS, the total sum of squares of the
+				// "y" data, to be used for r_squared after we know chi_sq
+				abs_t += local_f[i].xp[1][k] ;
+				tot_abs++;
+				k++;
+			}
+		}
+		k=0;
 	}
 
-	gsl_multifit_fdfsolver_free (s);
-	gsl_matrix_free (covar);
+	// Total number of points to fit
+	size_t pp = 4;
+    const gsl_multifit_fdfsolver_type *T;
+    T = gsl_multifit_fdfsolver_lmsder;
+    gsl_multifit_fdfsolver *s;
+    // do a fit for each triplex curve
+    for (i=0; i<n; i++){
+        // Total number of points to fit
+        if (bVerbose){printf("Working on curve n %d\n",i);}
+        struct fit_data d = { n,i, local_f};
+        tot_points = local_f[i].nts ;
+        gsl_matrix *covar = gsl_matrix_alloc (pp, pp);
+        gsl_multifit_function_fdf ff;
+        gsl_vector *x;
+        x = gsl_vector_alloc(pp);
+        gsl_vector_set(x,0,f[i].tm2);
+        gsl_vector_set(x,1,f[i].c);
+        gsl_vector_set(x,2,-70);
+        gsl_vector_set(x,3,-0.1);
+        s = gsl_multifit_fdfsolver_alloc (T, tot_points, pp);
+        // copy data to function
+        ff.f = &eq_fit;
+        ff.df = NULL;
+        ff.fdf = NULL;
+        ff.p = pp;
+        // total number of points is total of points
+        // in the curve plus the number of points for the inv. fit
+        ff.n = tot_points;
+        ff.params = &d;
+        gsl_multifit_fdfsolver_set (s, &ff, x);
 
-	return fit;
+        iter=0;
+        do
+        {
+            iter++;
+            status = gsl_multifit_fdfsolver_iterate (s);
+            if(bVerbose){
+                printf ("iter: %3u x = % 15.8f % 15.8f %15.8f "
+                        "|f(x)| = %g\n",iter,
+                        gsl_vector_get (s->x, 0),
+                        gsl_vector_get (s->x, 1),
+                        gsl_vector_get (s->x, 2),
+                        gsl_blas_dnrm2 (s->f));
+            }
+
+            if (status)
+                break;
+            status = gsl_multifit_test_delta (s->dx, s->x,
+                    1e-8, 1e-8);
+        }
+        while (status == GSL_CONTINUE && iter < 500);
+        gsl_multifit_covar (s->J, 0.0, covar);
+        gsl_matrix_free (covar);
+        gsl_vector_free(x);
+    // copy tm2 data adjusted from each curve
+        local_f[i].tm2 = gsl_vector_get(s->x, 0);
+    }
+
+    //free first solver
+    gsl_multifit_fdfsolver_free (s);
+
+    // do the 1/tm vs ln(ct) fitting
+    const gsl_multifit_fdfsolver_type *Tl;
+    gsl_multifit_fdfsolver *sl;
+    // fit params in the straight line
+    int ppl = 2;
+    gsl_matrix *covarl = gsl_matrix_alloc (ppl, ppl);
+    struct fit_data dl = { n,i, local_f};
+    gsl_multifit_function_fdf ffl;
+    gsl_vector *xl;
+    xl = gsl_vector_alloc(ppl);
+    // DH and DS
+    gsl_vector_set(xl,0,-70);
+    gsl_vector_set(xl,1,-0.1);
+    Tl = gsl_multifit_fdfsolver_lmsder;
+    sl = gsl_multifit_fdfsolver_alloc (Tl, n, ppl);
+    // copy data to function
+    ffl.f=&eq_fit_straight;
+    ffl.df = NULL;
+    ffl.fdf = NULL;
+    ffl.p = ppl;
+    // total number of points the number of curves
+    ffl.n = n;
+    ffl.params = &dl;
+    gsl_multifit_fdfsolver_set (sl, &ffl, xl);
+
+    iter=0;
+    do
+    {
+        iter++;
+        status = gsl_multifit_fdfsolver_iterate (sl);
+        if(bVerbose){
+            printf ("iter: %3u x = % 15.8f % 15.8f "
+                    "|f(x)| = %g\n",iter,
+                    gsl_vector_get (sl->x, 0),
+                    gsl_vector_get (sl->x, 1),
+                    gsl_blas_dnrm2 (sl->f));
+        }
+
+        if (status)
+            break;
+        status = gsl_multifit_test_delta (sl->dx, sl->x,
+                1e-8, 1e-8);
+    }
+    while (status == GSL_CONTINUE && iter < 500);
+    gsl_multifit_covar (sl->J, 0.0, covarl);
+
+    #define FIT(i) gsl_vector_get(sl->x, i)
+    #define ERR(i) sqrt(gsl_matrix_get(covarl,i,i))
+
+    // compute contribution of inverse temperature to TSS
+    for(i=0;i<n;i++){
+        inv_t += ((real)1.0/(real)local_f[i].tm2);
+        tot_inv_t++;
+    }
+    mean_inv_t = inv_t / (real)tot_inv_t;
+    for(i=0;i<n;i++){
+        tss_inv += (1.0/(real)local_f[i].tm2 - mean_inv_t ) * (1.0/(real)local_f[i].tm2 - mean_inv_t);
+    }
+
+    if (bUpdate){
+        fit.dh2 = gsl_vector_get(sl->x, 0);
+        fit.ds2 = gsl_vector_get(sl->x, 1);
+        fit.dg2   = fit.dh2 - 298.15*fit.ds2;
+        for(i=0; i<n; i++){
+            f[i].tm2 = local_f[i].tm2 ;
+        }
+    }
+
+    tss_tot = tss_inv ;
+
+    double chi = gsl_blas_dnrm2(sl->f);
+    fit.r2 = 1.0 - ( chi*chi / tss_tot ) ;
+    double dof = n - ppl;
+    double c = GSL_MAX_DBL(1, chi / sqrt(dof));
+
+    if(bVerbose)
+    {
+        printf ("chisq/dof = %g\n",  pow(chi, 2.0) / dof);
+        printf ("r2      = %g\n",  fit.r2);
+        printf ("DH3    = %.5f +/- %.5f\n", FIT(0), c*ERR(0));
+        printf ("DS3    = %.5f +/- %.5f\n", FIT(1), c*ERR(1));
+        printf ("DG3    = %.5f +/- %.5f\n", FIT(0)-298*FIT(1),c*ERR(1)+c*298*ERR(0));
+        printf ("status = %s\n", gsl_strerror (status));
+    }
+
+    gsl_multifit_fdfsolver_free (sl);
+    gsl_matrix_free (covarl);
+    gsl_vector_free(xl);
+
+    return fit;
 }
 
 void print_multifit_info(f_info *f, int n)
@@ -236,13 +370,13 @@ void print_multifit_info(f_info *f, int n)
 	int i;
 	for(i=0; i<n; i++){
 		printf("------------------ Curve %d ---------------------\n",i); 
-		printf("We suggest %5.3f as the triplex melting point\n",f[i].tm2); 
+		printf("We suggest %5.3f as the duplex melting point\n",f[i].tm2); 
 		printf("-------------------------------------------------\n"); 
 	}
 }
 void scale_data(f_info *f,int n)
 {
-    int i;
+    int i,j;
 	for(i=0; i<n; i++){
 		for(j=0; j<f[i].nts; j++){
 			f[i].x[0][j] += 273.15;
@@ -346,22 +480,34 @@ void suggest_tm2_dh2(f_info *f,int nf, bool bVerbose)
 
 }
 
-f_all_sol opt_melt_diff_conc( f_info *f_inp, int nf, bool bVerbose , const char *out )
+f_all_sol opt_melt_diff_conc(f_info *f_inp, int nf, fit_params f_parm, bool bVerbose ,const char *out )
 {
-//
-// compute the ratio of transition heights and
-// the initial guess for tm3 
-// then fit all melting curves taking into account that
-// we want to have a straight line 1/Tm vs log(conc) 
-//
+	//
+	// Scale data 
+	// fit all melting curves taking into account that
+	// we want to have a straight line 1/Tm vs log(conc) 
+	//
 	int i=0;
-	int file_counter=0;
+	int iter=0;
+	real *t_min;
+	real *t_max;
+	real *t_min_opt;
+	real *t_max_opt;
+	real r_number=0;
+	real r_sq_min=0;
 	FILE *f_fit;
 	f_all_sol mf;
+	real *fduplex;
+	bool bUpdate;
+
+	snew(fduplex,nf);
+	snew(t_min,nf);
+	snew(t_max,nf);
+	snew(t_min_opt,nf);
+	snew(t_max_opt,nf);
 
 	// remember to free max_abs and t_height and c_fix
 	find_c_fix(f_inp,nf);
-	//for(i=0;i<nf;i++){printf("%lf\n", c_fix[i]); } 
 	scale_data(f_inp,nf);
 	compute_derivatives(f_inp,nf);
 	suggest_tm2_dh2(f_inp,nf,bVerbose);
@@ -369,28 +515,68 @@ f_all_sol opt_melt_diff_conc( f_info *f_inp, int nf, bool bVerbose , const char 
 		print_multifit_info(f_inp, nf);
 	}
 
-	//do the fit
-	//	here you have to add the straight line fitting, besides working with all
-	mf=do_fit_duplex(f_inp, nf, bVerbose);
-	//	create_fit_curve(f_inp[i].x,ftrip,f_inp[i].nts,solution);
+	// we do a number of iterations
+	// and find the boundary conditions
+	// that give the best r_2
 
+	// We do not update the tm2 guess in order to have
+	// reproduceble fitting results. Once we have found
+	// the best fit, we can keep the results
+	bUpdate = FALSE;
+	for(iter=0; iter<f_parm.max_MC_iter; iter++){
+	//	printf("\rProgress %3.2f", (real)iter/(real) f_parm.max_MC_iter);
+	//	fflush(stdout);
+		for(i=0; i<nf; i++){
+			r_number =  (real)rand()/(real)RAND_MAX;
+			t_min[i] = (f_inp[i].bf - f_parm.wt) + r_number*2*f_parm.wt ;
+			r_number =  (real)rand()/(real)RAND_MAX;
+			t_max[i] = (f_inp[i].ef - f_parm.wt) + r_number*2*f_parm.wt ;
+		}
+		// Do the fit
+		// Here you have to add the straight line fitting, besides working with all
+		// It is here that we select based on the tmin/tmax 
+		mf=do_fit_duplex(f_inp, nf, t_min, t_max, bVerbose, bUpdate);
+		if ( mf.r2 > 0 && mf.r2 > r_sq_min ){
+			for(i=0; i<nf; i++){
+				t_min_opt[i] = t_min[i];
+				t_max_opt[i] = t_max[i];
+			}
+			r_sq_min = mf.r2;
+		}
+	}
+	printf("\n");
+
+	// We should have found the optimals, keep the fit
+	bUpdate = TRUE;
+	mf=do_fit_duplex(f_inp, nf, t_min_opt, t_max_opt, bVerbose, bUpdate);
+	eval_fit_straight(mf, f_inp, nf, fduplex);
+	//create_fit_curve(f_inp[i].x,ftrip,f_inp[i].nts,solution);
 	// Output experimental vs fitted
 	if(out) {
 		f_fit = ffopen(out,"w");
 		for(j=0; j<nf; j++){  
 			fprintf(f_fit,"%f %f \n", log(f_inp[j].conc), 1.0/f_inp[j].tm2);
 		}
-		/*
+
 		fprintf(f_fit,"&\n");
-		for(j=0; j<f_inp[0].nts; j++){  
-			fprintf(f_fit,"%f %f \n", ftrip[0][j], ftrip[1][j]);
+		for(j=0; j<nf; j++){  
+			fprintf(f_fit,"%f %f \n", log(f_inp[j].conc), fduplex[j]);
 		}
-		*/
 		fclose(f_fit);
 	}
+	//Optim T solutions
+	printf("Opt fit DG %4.2f DH %4.2f DS %4.2f  -  R_2 %4.2f\n",mf.dg2, mf.dh2, mf.ds2, mf.r2) ;
+	if (bVerbose){
+		printf("\n") ;
+		for(i=0; i<nf; i++){
+			printf(" %d - T_min %4.2f T_max %4.2f\n",i,t_min_opt[i], t_max_opt[i]) ;
+		}
+	}
 
-	file_counter++;
-
+	sfree(t_min);
+	sfree(t_max);
+	sfree(t_min_opt);
+	sfree(t_max_opt);
 	return mf;
 }
 
@@ -405,9 +591,16 @@ int main(int argc, char *argv[])
 	FILE	*f_fit;
 	static real	tmaxabs=-1;
 	static bool	bVerbose=FALSE;
+	static fit_params f_parm;
+	f_parm.max_MC_iter = 200;
+	f_parm.wt = 2.0;
 
 	/* Command-line arguments */
 	t_pargs          pa[] = {
+		{"-mi", FALSE, etINT, {&(f_parm.max_MC_iter)},
+			"Number of iterations with random boundaries to find best r^2"},
+		{"-wt", FALSE, etREAL, {&(f_parm.wt)},
+			"Width of T window to randomize T_min/T_max boundaries"},
 		{"-v", TRUE, etBOOL, {&bVerbose},
 			"Be verbose."},
 	};
@@ -431,6 +624,8 @@ int main(int argc, char *argv[])
 	f_all_sol		all_sol;
 	int				nfiles=0;
 	int				nfiles_read=0;
+	real 			*t_min;
+	real 			*t_max;
 
 	npargs=asize(pa);
 	//	CopyRight(stderr, argv[0]);
@@ -439,20 +634,18 @@ int main(int argc, char *argv[])
 
 	// read the input file
 	inputfile = opt2fn("-d",NFILE,fnm);
-	if(inputfile) {f_melt = ffopen(inputfile,"r");}
-	while(fgets(line, 255, f_melt) != NULL) { nfiles++ ;}
-	fclose(f_melt);
-	snew(f_inp,nfiles);
 
 	// reading all the inputs, f_inp contains the input file names, the 
 	// number of lines per file, as well as the parameters for each fitting
-	readfiles(inputfile, f_inp, &nfiles_read);
+	// We are going to read all the points here, then apply the
+	// limits later on 
+	readfiles(inputfile, &f_inp, &nfiles_read);
 
-	if( nfiles_read != nfiles ) {gmx_fatal(FARGS,"Wrong number of lines read\n"); }
+	//initialize PRNG
+	srand(time(NULL));
 
 	outfile = opt2fn("-o",NFILE,fnm);
-	all_sol=opt_melt_diff_conc( f_inp, nfiles, bVerbose, outfile );
-
+	all_sol=opt_melt_diff_conc(f_inp, nfiles_read, f_parm,  bVerbose, outfile);
 
 	return 0;
 
