@@ -1,12 +1,13 @@
 
-Compute interactions between on group of atoms against
-two other groups of atoms from MD trajectories (Gromacs XTC files)
+## Compute interactions between a group of atoms against two other groups of atoms from MD trajectories (Gromacs XTC files)
+
 It computes both electrostatic and Lennard-Jones interactions, it can
 use a cut-off and neigbour searching to speed up the calculation. 
-Compare to using gmx mdrun -rerun is slower, but it is a bid more flexible
+Compare to using gmx mdrun -rerun is slower, but it is a bit more flexible
 in defining the interaction groups. 
 
 
+## How to compile
 Requires Gromacs 2016
 
 It compiles as standalone application, it is not merged into the gmx "name_tool" 
