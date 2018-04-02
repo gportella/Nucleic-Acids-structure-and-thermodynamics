@@ -1,6 +1,5 @@
 
-## Determine thermodynamic properties of duplex and triplex DNA from UV-abs
-melting curves. 
+## Determine thermodynamic properties of duplex and triplex DNA from UV-abs melting curves. 
 
 The thermodynamic properties can be derived from either
 multiple curves at different concentration (which is presumably more accurate)
