@@ -8,10 +8,10 @@ in defining the interaction groups.
 
 
 ## How to compile
-Requires Gromacs 2016
 
-It compiles as standalone application, it is not merged into the gmx "name_tool" 
-mechanism for convenience. 
+Use ```cmake .; make ``` to compile. Requires that Gromacs 2016 is sourced in the path.
+
+It compiles as standalone application, it is not merged into the gmx "name_tool". 
 
 Once compiled ./interact -h should give you the options. These should be documented 
 fine, but just in case you can also check the code. 
