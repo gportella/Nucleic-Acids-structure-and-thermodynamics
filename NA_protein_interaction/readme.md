@@ -3,7 +3,7 @@
 
 Tool to compute both electrostatic and Lennard-Jones interactions, it can
 use a cut-off and neigbour searching to speed up the calculation. 
-Compare to using gmx mdrun -rerun is slower, but it is a bit more flexible
+Compare to using `gmx mdrun -rerun` is slower, but it is a bit more flexible
 in defining the interaction groups. 
 
 
