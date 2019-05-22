@@ -10,7 +10,7 @@ in defining the interaction groups.
 ## How to compile
 
 > Make sure you have sourced Gromacs before you attempt to compile and/or run the program. 
-It was originally compiled against Gromacs 2016, but maybe it works in newer versions.
+It was originally compiled against Gromacs 2016, but maybe it works with newer versions as well.
 
 To compile, run `cmake` in the directory witht the sources. You might need to help `cmake` a 
 bit by providing a path to your C and C++ compilers. You should use the same compilers and libraries
