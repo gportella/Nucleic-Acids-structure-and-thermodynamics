@@ -9,7 +9,8 @@
 
 using namespace gmx;
 
-class AnalysisTemplate : public TrajectoryAnalysisModule {
+class AnalysisTemplate : public TrajectoryAnalysisModule
+{
 public:
   AnalysisTemplate();
 
@@ -46,7 +47,8 @@ private:
 AnalysisTemplate::AnalysisTemplate() : cutoff_(0.0) {}
 
 void AnalysisTemplate::initOptions(IOptionsContainer *options,
-                                   TrajectoryAnalysisSettings *settings) {
+                                   TrajectoryAnalysisSettings *settings)
+{
   static const char *const desc[] = {
       "Computes the interaction energies between a reference (nucleic acids)",
       "and a selection (protein).",
@@ -134,7 +136,8 @@ void AnalysisTemplate::initAnalysis(const TrajectoryAnalysisSettings &settings,
 }
 
 void AnalysisTemplate::analyzeFrame(int frnr, const t_trxframe &fr, t_pbc *pbc,
-                                    TrajectoryAnalysisModuleData *pdata) {
+                                    TrajectoryAnalysisModuleData *pdata)
+{
   const Selection &refsel = pdata->parallelSelection(refsel_);
   AnalysisNeighborhoodSearch nbsearch = nb_.initSearch(pbc, refsel);
 
@@ -149,11 +152,15 @@ void AnalysisTemplate::analyzeFrame(int frnr, const t_trxframe &fr, t_pbc *pbc,
   inter_.interact(nbsearch, refsel_, sel_);
 }
 
-void AnalysisTemplate::finishAnalysis(int frnr) {
+void AnalysisTemplate::finishAnalysis(int frnr)
+{
 
-  for (unsigned i = 0; i < sel_.size(); ++i) {
-    for (unsigned j = 0; j < inter_.ref_num; ++j) {
-      for (unsigned k = 0; k < inter_.sel_num[i]; ++k) {
+  for (unsigned i = 0; i < sel_.size(); ++i)
+  {
+    for (unsigned j = 0; j < inter_.ref_num; ++j)
+    {
+      for (unsigned k = 0; k < inter_.sel_num[i]; ++k)
+      {
         inter_.mat_inter[i][j][k].lj /= frnr;
         inter_.mat_inter[i][j][k].coul /= frnr;
       }
@@ -161,14 +168,16 @@ void AnalysisTemplate::finishAnalysis(int frnr) {
   }
 }
 
-void AnalysisTemplate::writeOutput() {
+void AnalysisTemplate::writeOutput()
+{
   FILE *fp = NULL;
   FILE *fp_lj = NULL;
   FILE *fp_c = NULL;
   FILE *fp_proj = NULL;
   FILE *fp_c_proj = NULL;
   FILE *fp_lj_proj = NULL;
-  for (unsigned g = 0; g < sel_.size(); ++g) {
+  for (unsigned g = 0; g < sel_.size(); ++g)
+  {
     std::string prefix = "sel_" + std::to_string(g + 1) + "_";
     std::string filen = prefix + fnInter_;
     fp = fopen(filen.c_str(), "w");
@@ -184,14 +193,17 @@ void AnalysisTemplate::writeOutput() {
     fp_lj_proj = fopen(filen.c_str(), "w");
     real sum_lj = 0;
     real sum_c = 0;
-    for (unsigned j = 0; j < inter_.ref_num; ++j) {
+    for (unsigned j = 0; j < inter_.ref_num; ++j)
+    {
       auto ref_resid = inter_.ref_nuc[j].resid;
       auto ref_resname = inter_.ref_nuc[j].resname;
-      for (unsigned k = 0; k < inter_.sel_num[g]; ++k) {
+      auto ref_chain = inter_.ref_nuc[j].chain;
+      for (unsigned k = 0; k < inter_.sel_num[g]; ++k)
+      {
         auto sel_resid = inter_.sel_aa[g][k].resid;
         auto sel_resname = inter_.sel_aa[g][k].resname;
-        fprintf(fp, "%s %d %s %d %7.4f\n", ref_resname.c_str(), ref_resid,
-                sel_resname.c_str(), sel_resid,
+        fprintf(fp, "%s %d %c %s %d %7.4f\n", ref_resname.c_str(), ref_resid,
+                ref_chain, sel_resname.c_str(), sel_resid,
                 inter_.mat_inter[g][j][k].coul + inter_.mat_inter[g][j][k].lj);
         fprintf(fp_lj, "%s %d %s %d %7.4f\n", ref_resname.c_str(), ref_resid,
                 sel_resname.c_str(), sel_resid, inter_.mat_inter[g][j][k].lj);
@@ -200,7 +212,7 @@ void AnalysisTemplate::writeOutput() {
         sum_c += inter_.mat_inter[g][j][k].coul;
         sum_lj += inter_.mat_inter[g][j][k].lj;
       }
-      fprintf(fp_proj, "%s %d %7.4f\n", ref_resname.c_str(), ref_resid,
+      fprintf(fp_proj, "%s %d %c %7.4f\n", ref_resname.c_str(), ref_resid, ref_chain,
               sum_c + sum_lj);
       fprintf(fp_c_proj, "%s %d %7.4f\n", ref_resname.c_str(), ref_resid,
               sum_c);
@@ -224,7 +236,8 @@ void AnalysisTemplate::writeOutput() {
 /*! \brief
  * The main function for the analysis template.
  */
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
   return gmx::TrajectoryAnalysisCommandLineRunner::runAsMain<AnalysisTemplate>(
       argc, argv);
 }
